@@ -5,7 +5,7 @@ function PlatformerGridCell() {
 }
 
 // Platformer node, a dynamic object in the grid
-function PlatformerNode(x, y, width, height) {
+function PlatformerNode(x, y, width, height, color) {
   this.x = x;
   this.y = y;
   this.vx = 0;
@@ -13,6 +13,11 @@ function PlatformerNode(x, y, width, height) {
   this.width = width;
   this.height = height;
   this.onGround = false;
+  this.color = color;
+
+  this.right = false;
+  this.left = false;
+  this.jump = false;
 }
 
 PlatformerNode.prototype = {
@@ -58,7 +63,12 @@ PlatformerNode.prototype = {
   },
 
   collideCellBottom(resolution) {
+    //if (this.onGround == false) {
+      var audio = new Audio('ground.wav');
+      audio.play();
+    //}
     this.onGround = true;
+
     this.vy = 0;
     this.y = this.getCellBottom(this.y, resolution) * resolution - this.height;
   },
@@ -66,16 +76,22 @@ PlatformerNode.prototype = {
   collideCellTop(resolution) {
     this.vy = 0;
     this.y = this.getCellTop(this.yp, resolution) * resolution;
+    var audio = new Audio('top.wav');
+    audio.play();    
   },
 
   collideCellRight(resolution) {
     this.vx = 0;
     this.x = this.getCellRight(this.x, resolution) * resolution - this.width;
+    var audio = new Audio('side.wav');
+    audio.play();
   },
 
   collideCellLeft(resolution) {
     this.vx = 0;
     this.x = this.getCellLeft(this.xp, resolution) * resolution;
+    var audio = new Audio('side.wav');
+    audio.play();
   },
 
   limitXSpeed(timeStep) {
@@ -112,9 +128,8 @@ function PlatformerGrid(width, height, resolution, gravity = 2500, friction = 17
 PlatformerGrid.prototype = {
   EDGE_STROKE_STYLE: "blue",
   EDGE_LINE_WIDTH: 4,
-  GRID_STROKE_STYLE: "gray",
+  GRID_STROKE_STYLE: "grey",
   GRID_LINE_WIDTH: 0.5,
-  PLAYER_FILL_STYLE: "red",
   EPSILON: 0.0000001,
 
   validateCoordinates(x, y) {
@@ -163,79 +178,149 @@ PlatformerGrid.prototype = {
       this.nodes.splice(nodeIndex, 1);
   },
 
+  moveHorizontally(timeStep, node) {
+
+    node.limitXSpeed(timeStep);
+
+    var vx = node.vx * timeStep;
+    node.xp = node.x;
+    node.x += vx;
+
+    if(node.vx > 0) {
+      this.checkRightWallCollision(node);
+    }
+    else {
+      this.checkLeftWallCollision(node);
+    }
+
+    this.checkNodeIsStillOnGround(node);
+
+    this.applyFrictionIfOnGround(node, timeStep);
+  },
+
+  checkRightWallCollision(node) {
+
+    if(node.getCellRight(node.x, this.resolution) != node.getCellRight(node.xp, this.resolution)) {
+      const yCells = node.getYCells(this.resolution);
+
+      for(var y = yCells.start; y <= yCells.end; ++y) {
+        if(this.getWall(node.getCellRight(node.x, this.resolution), y) ||
+          (y != yCells.start && this.getCeiling(node.getCellRight(node.x, this.resolution), y))) {
+          node.collideCellRight(this.resolution);
+
+          break;
+        }
+      }
+    }    
+  },
+
+  checkLeftWallCollision(node) {
+
+    if(node.getCellLeft(node.x, this.resolution) != node.getCellLeft(node.xp, this.resolution)) {
+      const yCells = node.getYCells(this.resolution);
+
+      for(var y = yCells.start; y<= yCells.end; ++y) {
+        if(this.getWall(node.getCellLeft(node.xp, this.resolution), y) ||
+          (y != yCells.start && this.getCeiling(node.getCellLeft(node.x, this.resolution), y))) {
+          node.collideCellLeft(this.resolution);
+
+          break;
+        }
+      }
+    }    
+  },
+
+  checkNodeIsStillOnGround(node) {
+
+    if (node.onGround) {
+      const xCells = node.getXCells(this.resolution);
+
+      for(var x = xCells.start; x <= xCells.end; ++x) {
+        node.onGround = false;
+
+        if(this.getCeiling(x, node.getCellBottom(node.y, this.resolution) + 1) ||
+          (x != xCells.start && this.getWall(x, node.getCellBottom(node.y, this.resolution) + 1))) {
+          node.onGround = true;
+          break;
+        }
+      }
+    }
+  },
+  
+  applyFrictionIfOnGround(node, timeStep) {
+
+    if(node.onGround) {
+      if(node.vx > 0) {
+        node.vx -= this.friction * timeStep;
+
+        if(node.vx < 0)
+          node.vx = 0;
+      }
+      else if(node.vx < 0) {
+        node.vx += this.friction * timeStep;
+
+        if(node.vx > 0)
+          node.vx = 0;
+      }
+    }
+  },
+
+  moveVertically(timeStep, node) {
+
+    node.limitYSpeed(timeStep);
+
+    var vy = node.vy * timeStep;
+    node.yp = node.y;
+    node.y += vy;
+
+    // Collide vertically
+    if(node.vy > 0) {
+      this.checkBottomCollision(node);
+    }
+    else {
+      this.checkTopCollision(node);
+    }
+  },
+
+  checkBottomCollision(node) {
+
+    if(node.getCellBottom(node.y, this.resolution) != node.getCellBottom(node.yp, this.resolution)) {
+      const xCells = node.getXCells(this.resolution);
+
+      for(var x = xCells.start; x <= xCells.end; ++x) {
+        if(this.getCeiling(x, node.getCellBottom(node.y, this.resolution)) ||
+          (x != xCells.start && this.getWall(x, node.getCellBottom(node.y, this.resolution)))) {
+          node.collideCellBottom(this.resolution);
+
+          break;
+        }
+      }
+    }
+  },
+
+  checkTopCollision(node) {
+
+    if(node.getCellTop(node.y, this.resolution) != node.getCellTop(node.yp, this.resolution)) {
+      const xCells = node.getXCells(this.resolution);
+
+      for(var x = xCells.start; x <= xCells.end; ++x) {
+        if(this.getCeiling(x, node.getCellTop(node.yp, this.resolution)) ||
+          (x != xCells.start && this.getWall(x, node.getCellTop(node.y, this.resolution)))) {
+          node.collideCellTop(this.resolution);
+
+          break;
+        }
+      }
+    }    
+  },
+
   update(timeStep) {
+
     for(var i = 0; i < this.nodes.length; ++i) {
       const node = this.nodes[i];
 
-      // Move horizontally
       if(node.vx != 0) {
-        node.limitXSpeed(timeStep);
-
-        var vx = node.vx * timeStep;
-        node.xp = node.x;
-        node.x += vx;
-
-        // Collide horizontally
-        if(node.vx > 0) {
-          if(node.getCellRight(node.x, this.resolution) != node.getCellRight(node.xp, this.resolution)) {
-            const yCells = node.getYCells(this.resolution);
-
-            for(var y = yCells.start; y <= yCells.end; ++y) {
-              if(this.getWall(node.getCellRight(node.x, this.resolution), y) ||
-                (y != yCells.start && this.getCeiling(node.getCellRight(node.x, this.resolution), y))) {
-                node.collideCellRight(this.resolution);
-
-                break;
-              }
-            }
-          }
-        }
-        else {
-          if(node.getCellLeft(node.x, this.resolution) != node.getCellLeft(node.xp, this.resolution)) {
-            const yCells = node.getYCells(this.resolution);
-
-            for(var y = yCells.start; y<= yCells.end; ++y) {
-              if(this.getWall(node.getCellLeft(node.xp, this.resolution), y) ||
-                (y != yCells.start && this.getCeiling(node.getCellLeft(node.x, this.resolution), y))) {
-                node.collideCellLeft(this.resolution);
-
-                break;
-              }
-            }
-          }
-        }
-
-        // Check if node is still on ground
-        if(node.onGround) {
-          const xCells = node.getXCells(this.resolution);
-
-          for(var x = xCells.start; x <= xCells.end; ++x) {
-            node.onGround = false;
-
-            if(this.getCeiling(x, node.getCellBottom(node.y, this.resolution) + 1) ||
-              (x != xCells.start && this.getWall(x, node.getCellBottom(node.y, this.resolution) + 1))) {
-              node.onGround = true;
-
-              break;
-            }
-          }
-        }
-
-        // Apply friction if on ground
-        if(node.onGround) {
-          if(node.vx > 0) {
-            node.vx -= this.friction * timeStep;
-
-            if(node.vx < 0)
-              node.vx = 0;
-          }
-          else if(node.vx < 0) {
-            node.vx += this.friction * timeStep;
-
-            if(node.vx > 0)
-              node.vx = 0;
-          }
-        }
+        this.moveHorizontally(timeStep, node);
       }
 
       // Add gravity
@@ -243,43 +328,8 @@ PlatformerGrid.prototype = {
         node.vy += this.gravity * timeStep;
       }
 
-      // Mover vertically
       if(node.vy != 0) {
-        node.limitYSpeed(timeStep);
-
-        var vy = node.vy * timeStep;
-        node.yp = node.y;
-        node.y += vy;
-
-        // Collide vertically
-        if(node.vy > 0) {
-          if(node.getCellBottom(node.y, this.resolution) != node.getCellBottom(node.yp, this.resolution)) {
-            const xCells = node.getXCells(this.resolution);
-
-            for(var x = xCells.start; x <= xCells.end; ++x) {
-              if(this.getCeiling(x, node.getCellBottom(node.y, this.resolution)) ||
-                (x != xCells.start && this.getWall(x, node.getCellBottom(node.y, this.resolution)))) {
-                node.collideCellBottom(this.resolution);
-
-                break;
-              }
-            }
-          }
-        }
-        else {
-          if(node.getCellTop(node.y, this.resolution) != node.getCellTop(node.yp, this.resolution)) {
-            const xCells = node.getXCells(this.resolution);
-
-            for(var x = xCells.start; x <= xCells.end; ++x) {
-              if(this.getCeiling(x, node.getCellTop(node.yp, this.resolution)) ||
-                (x != xCells.start && this.getWall(x, node.getCellTop(node.y, this.resolution)))) {
-                node.collideCellTop(this.resolution);
-
-                break;
-              }
-            }
-          }
-        }
+        this.moveVertically(timeStep, node);
       }
     }
   },
@@ -331,20 +381,38 @@ PlatformerGrid.prototype = {
     }
   },
 
-  drawNodes(context) {
+  drawNodes(context, helpCtx) {
     for(var i = 0; i < this.nodes.length; ++i) {
       const node = this.nodes[i];
 
-      context.fillStyle = this.PLAYER_FILL_STYLE;
+      context.fillStyle = node.color;
       context.beginPath();
       context.rect(node.x, node.y, node.width, node.height);
       context.fill();
+
+      context.font = "16px Arial";
+      context.fillText("("+ node.x.toFixed(1)+","+node.y.toFixed(1)+")", node.x, node.y);
+
+      helpCtx.font = "16px Arial";
+      helpCtx.fillStyle = node.color;
+
+      helpCtx.fillText("p: ("+ node.x.toFixed(0)+","+node.y.toFixed(0)+")", 10, (i+1)*20);
+      const xCells = node.getXCells(this.resolution);
+      const yCells = node.getYCells(this.resolution);
+      helpCtx.fillText("xC:"+xCells.start+"-"+xCells.end, 130, (i+1)*20);
+      helpCtx.fillText("yC:"+yCells.start+"-"+yCells.end, 210, (i+1)*20);
+      const B = node.getCellBottom(node.y, this.resolution);
+      const T = node.getCellTop(node.y, this.resolution);
+      const R = node.getCellRight(node.x, this.resolution);
+      const L = node.getCellLeft(node.x, this.resolution);      
+      helpCtx.fillText("B:"+B+" T:"+T+" R:"+R+" L"+L, 300, (i+1)*20);
+
     }
   },
 
-  draw(context) {
+  draw(context, helpCtx) {
     this.drawGrid(context);
     this.drawWalls(context);
-    this.drawNodes(context);
+    this.drawNodes(context, helpCtx);
   }
 };
